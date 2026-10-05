@@ -17,6 +17,7 @@ from pyrit.models import (
     SeedPrompt,
 )
 from pyrit.prompt_target import PromptTarget
+from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration, DatasetConstraintError
 from pyrit.scenario.core.scenario_context import ScenarioContext
 from pyrit.scenario.garak import (  # type: ignore[ty:unresolved-import]
     PackageHallucinationTechnique,
@@ -163,6 +164,95 @@ class TestWebInjectionInitialization:
         assert "garak_markdown_js" in names
         assert "garak_web_html_js" in names
         assert "garak_xss_normal_instructions" in names
+
+    async def test_partial_selection_rejected_with_empty_memory(self, *, mock_objective_target: PromptTarget) -> None:
+        """An explicit selection missing a technique's source fails before any dataset is read."""
+        scenario = WebInjection()
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "scenario_techniques": [WebInjectionTechnique.TaskXSS],
+                "dataset_config": DatasetAttackConfiguration(
+                    dataset_names=[
+                        WebInjection.DATASET_NORMAL_INSTRUCTIONS,
+                        WebInjection.DATASET_EXAMPLE_DOMAINS,
+                    ]
+                ),
+            }
+        )
+        with pytest.raises(DatasetConstraintError, match="requires dataset 'garak_web_html_js'"):
+            await scenario.initialize_async()
+
+    async def test_partial_selection_rejected_with_preloaded_memory(
+        self, *, mock_objective_target: PromptTarget, web_injection_seeds_async: None
+    ) -> None:
+        """Preloading every default dataset must not rescue the same incomplete selection."""
+        scenario = WebInjection()
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "scenario_techniques": [WebInjectionTechnique.TaskXSS],
+                "dataset_config": DatasetAttackConfiguration(
+                    dataset_names=[
+                        WebInjection.DATASET_NORMAL_INSTRUCTIONS,
+                        WebInjection.DATASET_EXAMPLE_DOMAINS,
+                    ]
+                ),
+            }
+        )
+        with pytest.raises(DatasetConstraintError, match="requires dataset 'garak_web_html_js'"):
+            await scenario.initialize_async()
+
+    async def test_complete_selection_with_empty_memory(self, *, mock_objective_target: PromptTarget) -> None:
+        """The corrected selection resolves its sources without any preload."""
+        memory = CentralMemory.get_memory_instance()
+        assert not await memory.get_seeds_async()
+
+        scenario = WebInjection(max_prompts_per_technique=1)
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "scenario_techniques": [WebInjectionTechnique.TaskXSS],
+                "include_baseline": False,
+                "dataset_config": DatasetAttackConfiguration(
+                    dataset_names=[
+                        WebInjection.DATASET_NORMAL_INSTRUCTIONS,
+                        WebInjection.DATASET_WEB_HTML_JS,
+                    ]
+                ),
+            }
+        )
+        await scenario.initialize_async()
+        assert [attack.atomic_attack_name for attack in scenario._atomic_attacks] == ["task_xss"]
+        assert scenario._atomic_attacks[0].seed_groups
+
+    async def test_default_selection_skips_the_source_check(self, *, mock_objective_target: PromptTarget) -> None:
+        """Omitting --dataset-names keeps the scenario defaults, which carry every source."""
+        scenario = WebInjection(max_prompts_per_technique=1)
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "scenario_techniques": [WebInjectionTechnique.TaskXSS],
+                "include_baseline": False,
+            }
+        )
+        await scenario.initialize_async()
+        assert scenario._atomic_attacks[0].seed_groups
+
+    async def test_inline_seeds_are_rejected(self, *, mock_objective_target: PromptTarget) -> None:
+        """WebInjection reads its sources by name, so inline seeds cannot stand in for them."""
+        scenario = WebInjection()
+        scenario.set_params_from_args(
+            args={
+                "objective_target": mock_objective_target,
+                "scenario_techniques": [WebInjectionTechnique.TaskXSS],
+                "dataset_config": DatasetAttackConfiguration(
+                    seeds=[SeedPrompt(value="task", dataset_name="inline")]
+                ),
+            }
+        )
+        with pytest.raises(DatasetConstraintError, match="inline seeds are not supported"):
+            await scenario.initialize_async()
 
     async def test_real_local_datasets_load_async(self, *, mock_objective_target: PromptTarget) -> None:
         memory = CentralMemory.get_memory_instance()

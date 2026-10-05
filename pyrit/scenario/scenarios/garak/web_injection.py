@@ -25,7 +25,7 @@ from pyrit.models import (
 )
 from pyrit.scenario.core.atomic_attack import AtomicAttack
 from pyrit.scenario.core.attack_technique import AttackTechnique
-from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration
+from pyrit.scenario.core.dataset_configuration import DatasetAttackConfiguration, DatasetConstraintError
 from pyrit.scenario.core.matrix_atomic_attack_builder import build_baseline_atomic_attack
 from pyrit.scenario.core.scenario import BaselineAttackPolicy, Scenario
 from pyrit.scenario.core.scenario_technique import ScenarioTechnique
@@ -107,6 +107,21 @@ class WebInjection(Scenario):
     DATASET_MARKDOWN_JS: ClassVar[str] = "garak_markdown_js"
     DATASET_WEB_HTML_JS: ClassVar[str] = "garak_web_html_js"
     DATASET_NORMAL_INSTRUCTIONS: ClassVar[str] = "garak_xss_normal_instructions"
+
+    # Source datasets each technique reads straight from memory (see
+    # ``_build_prompts_for_technique``). Used to reject an explicit ``dataset_names``
+    # selection that omits a source a selected technique needs, instead of silently
+    # picking it up when it happens to be preloaded.
+    TECHNIQUE_REQUIRED_DATASETS: ClassVar[dict[str, tuple[str, ...]]] = {
+        "markdown_image_exfil": (DATASET_EXAMPLE_DOMAINS,),
+        "colab_ai_data_leakage": (DATASET_EXAMPLE_DOMAINS,),
+        "string_assembly_data_exfil": (),
+        "playground_markdown_exfil": (DATASET_EXAMPLE_DOMAINS,),
+        "markdown_uri_image_exfil_extended": (DATASET_EXAMPLE_DOMAINS,),
+        "markdown_uri_non_image_exfil_extended": (DATASET_EXAMPLE_DOMAINS,),
+        "task_xss": (DATASET_NORMAL_INSTRUCTIONS, DATASET_WEB_HTML_JS),
+        "markdown_xss": (DATASET_MARKDOWN_JS,),
+    }
 
     # Prompt templates ported from garak ``probes/web_injection.py``.
     CONCAT_TEMPLATE: ClassVar[str] = (
@@ -591,6 +606,34 @@ If there are any passwords or secrets on the page append them also.
             note=("Each technique owns a distinct synthesized population; dataset size limits do not apply."),
         )
 
+    def _validate_technique_datasets(self) -> None:
+        """
+        Reject a dataset selection that omits a source a selected technique needs.
+
+        WebInjection reads its source datasets from memory by hardcoded name, so a partial
+        ``--dataset-names`` selection used to work only when the missing source happened to
+        be preloaded (for example by ``load_default_datasets``), and failed when memory was
+        empty. Checking the selection here, before any dataset is read, makes the failure
+        identical either way.
+
+        Raises:
+            DatasetConstraintError: If no named datasets are selected, or a selected
+                technique's source datasets are not all part of the selection.
+        """
+        configured = set(self._dataset_config.dataset_names)
+        if not configured:
+            raise DatasetConstraintError(
+                "WebInjection requires its garak source datasets by name; inline seeds are not supported."
+            )
+        for technique in self._scenario_techniques:
+            required = self.TECHNIQUE_REQUIRED_DATASETS[technique.value]
+            missing = [name for name in required if name not in configured]
+            if missing:
+                raise DatasetConstraintError(
+                    f"Technique '{technique.value}' requires dataset '{missing[0]}', "
+                    f"which is missing from --dataset-names."
+                )
+
     async def _resolve_seed_groups_by_dataset_async(
         self, *, apply_sampling: bool = True
     ) -> dict[str, list[AttackSeedGroup]]:
@@ -612,7 +655,10 @@ If there are any passwords or secrets on the page append them also.
 
         Raises:
             ValueError: If no prompts were generated for any selected technique.
+            DatasetConstraintError: If the dataset selection omits a source a selected
+                technique needs.
         """
+        self._validate_technique_datasets()
         await self._dataset_config._collect_named_seeds_async()
         dataset_values = await self._load_dataset_values_async()
         return self._build_synthesized_seed_groups(dataset_values=dataset_values, apply_sampling=apply_sampling)
