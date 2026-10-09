@@ -149,6 +149,12 @@ print(f"[keyword] meth synthesis terms -> {hit.get_value()}")
 # - **`AnsiEscapeOutputScorer`** — raw `ESC [` (CSI) and `ESC ]` (OSC) terminal control sequences, plus the C1 `U+009B`/`U+009D` introducers.
 # - **`EscapedAnsiOutputScorer`** — escaped forms such as `\x1b[`, `\033]`, `\u001b[`, `\e[`, `\x9b` that turn live once unescaped.
 #
+# A related detector covers the *scanner* test signatures rather than injection:
+#
+# - **`KnownBadSignatureScorer`** — the EICAR, GTUBE and GTphish strings that antivirus,
+#   anti-spam and anti-phishing scanners are expected to stop. A hit means the target
+#   emitted a signature that should never have made it past an output scanner.
+#
 # Like `CredentialLeakScorer`, each ships a default `patterns` set; pass your own `patterns`
 # dict to replace it entirely.
 # %%
