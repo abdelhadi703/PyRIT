@@ -151,9 +151,9 @@ print(f"[keyword] meth synthesis terms -> {hit.get_value()}")
 #
 # A related detector covers the *scanner* test signatures rather than injection:
 #
-# - **`KnownBadSignatureScorer`** — the EICAR, GTUBE and GTphish strings that antivirus,
-#   anti-spam and anti-phishing scanners are expected to stop. A hit means the target
-#   emitted a signature that should never have made it past an output scanner.
+# - **`KnownBadSignatureScorer`** — the EICAR, GTUBE and GTphish marker strings.
+#   `True` means the marker is present in the text; it does not by itself prove a scanner
+#   is missing, so read it against the policy the target is meant to enforce.
 #
 # Like `CredentialLeakScorer`, each ships a default `patterns` set; pass your own `patterns`
 # dict to replace it entirely.
