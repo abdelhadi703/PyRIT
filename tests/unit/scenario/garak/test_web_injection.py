@@ -246,9 +246,7 @@ class TestWebInjectionInitialization:
             args={
                 "objective_target": mock_objective_target,
                 "scenario_techniques": [WebInjectionTechnique.TaskXSS],
-                "dataset_config": DatasetAttackConfiguration(
-                    seeds=[SeedPrompt(value="task", dataset_name="inline")]
-                ),
+                "dataset_config": DatasetAttackConfiguration(seeds=[SeedPrompt(value="task", dataset_name="inline")]),
             }
         )
         with pytest.raises(DatasetConstraintError, match="inline seeds are not supported"):
